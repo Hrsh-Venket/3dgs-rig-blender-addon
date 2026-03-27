@@ -106,6 +106,50 @@ def extract_gaussian_data_from_evaluated_mesh(mesh_obj):
         # Normalize quaternions
         norms = np.linalg.norm(rotations, axis=1, keepdims=True)
         rotations = rotations / norms
+
+        # --- Armature based roation of gaussians
+        armature_obj = None
+        for mod in mesh_obj.modifiers:
+            if mod.type == 'ARMATURE' and mod.object:
+                armature_obj = mod.object
+                break
+        if armature_obj and len(mesh_obj.vertex_groups) > 0:
+            n_groups = len(mesh_obj.vertex_groups)
+
+            # Build weight matrix 
+            # [N_vertices x N_bones] from vertex groups
+            weight_matrix = np.zeros((num_points, n_groups), dtype=np.float32)
+            for vert in mesh_obj.data.vertices:
+                for g in vert.groups:
+                    weight_matrix[vert.index, g.group] = g.weight
+            # Get each bone's deformation quaternion (rest pose -> current pose)
+            bone_quats = np.zeros((n_groups, 4), dtype=np.float32)
+            bone_quats[:, 0] = 1.0 # Identity quaternion
+            for vg in mesh_obj.vertex_groups:
+                if vg.name in armature_obj.pose.bones:
+                    pb = armature_obj.pose.bones[vg.name]
+                    deform = pb.matrix @ pb.bone.matrix_local.inverted()
+                    q = deform.to_quaternion()
+                    bone_quats[vg.index] = [q.w, q.x, q.y, q.z]
+            # Linear blend (using nlerp)
+            # [N x n_groups] @ [n_groups x 4] -> [N x 4]
+            blended = weight_matrix @ bone_quats
+            norms = np.linalg.norm(blended, axis=1, keepdims=True)
+            rigged = norms.flatten() > 1e-6
+            blended[~rigged] = [1, 0, 0, 0]
+            norms[~rigged] = 1.0
+            blended /= norms
+
+            # Quaternion Multiply:
+            # bone rotation * gaussian rotation (vectorised)
+            q1, q2 = blended, rotations
+            rotations = np.column_stack([
+                q1[:,0]*q2[:,0] - q1[:,1]*q2[:,1] - q1[:,2]*q2[:,2] - q1[:,3]*q2[:,3],
+                q1[:,0]*q2[:,1] + q1[:,1]*q2[:,0] + q1[:,2]*q2[:,3] - q1[:,3]*q2[:,2],
+                q1[:,0]*q2[:,2] - q1[:,1]*q2[:,3] + q1[:,2]*q2[:,0] + q1[:,3]*q2[:,1],
+                q1[:,0]*q2[:,3] + q1[:,1]*q2[:,2] - q1[:,2]*q2[:,1] + q1[:,3]*q2[:,0],
+            ])
+            rotations /= np.linalg.norm(rotations, axis=1, keepdims=True)
     else:
         print(f"Warning: rotation attributes not found on evaluated mesh, using defaults")
         rotations = np.zeros((num_points, 4))

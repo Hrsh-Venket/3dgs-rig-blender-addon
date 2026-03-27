@@ -451,41 +451,6 @@ def sna_texture_creation_FD1B2():
             format='R32F', 
             data=metadata_buffer
         )
-        # TODO add code to create bone weights_texture and bone matrices texture
-        # 
-        # CREATE BONE WEIGHTS TEXTURE
-        # (only needed if any object is rigged)
-        #
-        # for each (obj_name, obj_data) in cache:
-        #   if obj_data.get('is_rigged'):
-        #       all_bone_weights.append(obj_data['bone_weights'])  # [N x 8]
-        #   else:
-        #       # Unrigged: fill with zeros (no bone influence)
-        #       all_bone_weights.append(zeros(N, 8))
-        #
-        # merged_weights = concatenate(all_bone_weights)  # [Total x 8]
-        # flatten, pad, upload as 2D R32F texture -> bpy.gaussian_bone_weights_texture
-        #
-        #
-        # CREATE BONE MATRICES TEXTURE
-        # (initial bone matrices, will be updated per-frame)
-        #
-        # total_bones = 0
-        # bone_offset_per_object = []
-        # for each (obj_name, obj_data) in cache:
-        #   if obj_data.get('is_rigged'):
-        #       n_bones = len(obj_data['bone_names'])
-        #       bone_offset_per_object.append(total_bones)
-        #       total_bones += n_bones
-        #   else:
-        #       bone_offset_per_object.append(-1)
-        #
-        # bone_matrices_data = zeros(total_bones * 12)  # 3x4 per bone
-        # upload as 2D R32F texture -> bpy.gaussian_bone_texture
-
-        # Store bone offsets in metadata (extend the 15-float format, or new texture)
-        # bpy.gaussian_bone_offsets = bone_offset_per_object
-
         # ========== STORE GLOBALLY ==========
         bpy.gaussian_texture = gaussian_texture
         bpy.gaussian_texture_width = texture_width

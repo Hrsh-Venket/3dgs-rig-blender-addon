@@ -183,8 +183,6 @@ def sna_b2_load_from_blender_object_F0CCB(OBJECT_BASE_NAME):
         else:
             gaussian_data[:, 11:11+source_sh_coeffs.shape[1]] = source_sh_coeffs
 
-        # todo: add bone weights (4 bone weights, 4 bone indices). armature object, bones init here
-
         # generate unique object name
         object_name = get_unique_object_name(OBJECT_BASE_NAME)
         # create blender empty object
@@ -203,7 +201,6 @@ def sna_b2_load_from_blender_object_F0CCB(OBJECT_BASE_NAME):
         empty_object["source_mesh_name"] = source_obj.name  # Store name for reference/debugging
         empty_object["is_loaded"] = True
         empty_object["last_load_time"] = time.time()
-        # TODO: store rigging data here: bone weights, names, armature name, max_bones
         # Link to scene
         bpy.context.collection.objects.link(empty_object)
         # Initialize global cache if needed
@@ -217,7 +214,6 @@ def sna_b2_load_from_blender_object_F0CCB(OBJECT_BASE_NAME):
             'object': empty_object,
             'source_mesh_uuid': source_uuid,
             'source_mesh_name': source_obj.name  # Keep name for reference
-            # TODO: similarly add rigging data here
         }
         # Mark that global textures need rebuilding
         bpy.gaussian_global_needs_update = True
