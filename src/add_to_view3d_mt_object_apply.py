@@ -1,4 +1,6 @@
 import bpy
+from .important import *
+
 def sna_add_to_view3d_mt_object_apply_F9005(self, context):
     import os
     if not (False):

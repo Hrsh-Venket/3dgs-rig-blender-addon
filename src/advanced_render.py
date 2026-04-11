@@ -1,5 +1,6 @@
 import bpy
 from .important import *
+from .sna_render_comp import sna_render_comp_0DAEE
 
 class SNA_OT_Dgs_Render_Advanced_Render_Ba196(bpy.types.Operator):
     bl_idname = "sna.dgs_render_advanced_render_ba196"
