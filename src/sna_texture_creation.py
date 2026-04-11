@@ -286,6 +286,10 @@ def sna_texture_creation_FD1B2():
                         continue
                     # Try to reconstruct numpy array from bytes
                     try:
+                        # Ensure we have raw bytes (IDPropertyArray may not
+                        # expose the buffer protocol correctly for large arrays)
+                        if not isinstance(data_bytes, (bytes, bytearray)):
+                            data_bytes = bytes(data_bytes)
                         gaussian_data = np.frombuffer(data_bytes, dtype=np.float32).reshape(gaussian_count, 59)
                         # Validate data integrity
                         if gaussian_data.shape != (gaussian_count, 59):

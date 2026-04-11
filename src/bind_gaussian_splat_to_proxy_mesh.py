@@ -327,11 +327,19 @@ def Compute_New_World_Positions(gaussian_obj):
     bitangents = np.cross(normals, tangents)
     bitangents /= np.maximum(np.linalg.norm(bitangents, axis=1, keepdims=True), 1e-10)
 
-    # New positions = anchor + offset in deformed TBN space
-    new_positions = (anchor
-                   + offsets[:, 0:1] * tangents
-                   + offsets[:, 1:2] * bitangents
-                   + offsets[:, 2:3] * normals)
+    # New positions = anchor + offset in deformed TBN space (proxy-local)
+    new_positions_proxy = (anchor
+                         + offsets[:, 0:1] * tangents
+                         + offsets[:, 1:2] * bitangents
+                         + offsets[:, 2:3] * normals)
+
+    # Transform from proxy-local to gaussian-local space
+    # gaussian_data[:, 0:3] stores positions in the gaussian mesh's local space,
+    # so we need: proxy_local -> world -> gaussian_local
+    p2g = np.array((gaussian_obj.matrix_world.inverted() @ proxy_obj.matrix_world).transposed())  # 4x4 col-major
+    ones = np.ones((new_positions_proxy.shape[0], 1), dtype=np.float32)
+    pos_h = np.hstack([new_positions_proxy, ones])  # (N, 4)
+    new_positions = (pos_h @ p2g)[:, :3]
 
     # Rotation delta: deformed_face_quat * inverse(rest_face_quat)
     tbn_matrices = np.stack([tangents, bitangents, normals], axis=-1)  # (N,3,3)

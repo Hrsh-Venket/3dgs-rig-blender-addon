@@ -469,6 +469,32 @@ def sna_c2_refresh_all_4D367(REFRESH_ALL_OBJECTS, UPDATE_TRANSFORMS, USE_EVALUAT
                 gaussian_data[:, 11:11+sh_dim] = source_sh_coeffs[:, :sh_dim]
             else:
                 gaussian_data[:, 11:11+source_sh_coeffs.shape[1]] = source_sh_coeffs
+            # If source mesh is proxy-bound, patch positions and rotations
+            # from the deformed proxy mesh
+            if source_obj.get("_bind_proxy_mesh"):
+                try:
+                    from .bind_gaussian_splat_to_proxy_mesh import Compute_New_World_Positions, _quat_multiply
+                    new_positions, rotation_delta = Compute_New_World_Positions(source_obj)
+                    if new_positions is None:
+                        print(f"    PROXY PATCH FAILED: Compute_New_World_Positions returned None for {source_obj.name}")
+                    else:
+                        # Patch positions
+                        gaussian_data[:, 0:3] = new_positions
+                        # Apply rotation delta to original rotations: new_rot = delta * original
+                        orig_rotations = gaussian_data[:, 3:7]
+                        new_rotations = _quat_multiply(rotation_delta, orig_rotations)
+                        norms = np.linalg.norm(new_rotations, axis=1, keepdims=True)
+                        new_rotations /= np.maximum(norms, 1e-10)
+                        gaussian_data[:, 3:7] = new_rotations
+                        print(f"    Patched {num_gaussians} gaussian positions/rotations from proxy '{source_obj['_bind_proxy_mesh']}'")
+                except ImportError as e:
+                    print(f"    PROXY PATCH FAILED: Could not import bind module: {e}")
+                except KeyError as e:
+                    print(f"    PROXY PATCH FAILED: Missing bind attribute on mesh {source_obj.name}: {e}")
+                except Exception as e:
+                    print(f"    PROXY PATCH FAILED: Unexpected error for {source_obj.name}: {e}")
+                    import traceback
+                    traceback.print_exc()
             # Update object properties with new data
             obj["gaussian_data"] = gaussian_data.tobytes()
             obj["gaussian_count"] = num_gaussians
@@ -483,15 +509,17 @@ def sna_c2_refresh_all_4D367(REFRESH_ALL_OBJECTS, UPDATE_TRANSFORMS, USE_EVALUAT
                 transform_status = " (transform updated)" if transform_updated else " (transform update failed)"
             else:
                 transform_status = ""
-            # Update cache if it exists
-            if hasattr(bpy, 'gaussian_object_cache') and obj.name in bpy.gaussian_object_cache:
-                bpy.gaussian_object_cache[obj.name].update({
-                    'gaussian_data': gaussian_data,
-                    'gaussian_count': num_gaussians,
-                    'sh_degree': gaussian_data_info['sh_dim'],
-                    'source_mesh_uuid': source_uuid,
-                    'source_mesh_name': source_obj.name
-                })
+            # Always populate cache (create if needed)
+            if not hasattr(bpy, 'gaussian_object_cache'):
+                bpy.gaussian_object_cache = {}
+            bpy.gaussian_object_cache[obj.name] = {
+                'gaussian_data': gaussian_data,
+                'gaussian_count': num_gaussians,
+                'sh_degree': gaussian_data_info['sh_dim'],
+                'object': obj,
+                'source_mesh_uuid': source_uuid,
+                'source_mesh_name': source_obj.name
+            }
             return True, f"Refreshed: {num_gaussians:,} gaussians from {mesh_type} {source_obj.name} (SH degree {gaussian_data_info['sh_dim']}){transform_status}"
         except Exception as e:
             return False, f"Failed to refresh: {e}"
