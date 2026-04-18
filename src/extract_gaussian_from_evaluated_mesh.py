@@ -171,3 +171,102 @@ def extract_gaussian_data_from_evaluated_mesh(mesh_obj):
         'sh_coeffs': sh_coeffs,
         'sh_dim': sh_coeffs.shape[1]
     }
+
+def extract_gaussian_data_from_mesh(mesh_obj):
+    """Extract and process gaussian data from ORIGINAL mesh object attributes"""
+    # Extract positions from vertices - optimized version
+    num_points = len(mesh_obj.data.vertices)
+    if num_points == 0:
+        raise ValueError("Mesh has no vertices")
+    # Use foreach_get for fast vertex coordinate extraction
+    positions = np.zeros(num_points * 3, dtype=np.float32)
+    mesh_obj.data.vertices.foreach_get("co", positions)
+    positions = positions.reshape(-1, 3)
+    # Get available attributes
+    available_attrs = [attr.name for attr in mesh_obj.data.attributes]
+    # Extract spherical harmonics
+    if all(attr in available_attrs for attr in ['f_dc_0', 'f_dc_1', 'f_dc_2']):
+        dc_0 = extract_attribute_data(mesh_obj.data, 'f_dc_0')
+        dc_1 = extract_attribute_data(mesh_obj.data, 'f_dc_1')
+        dc_2 = extract_attribute_data(mesh_obj.data, 'f_dc_2')
+        features_dc = np.column_stack([dc_0, dc_1, dc_2])
+        # Find f_rest fields
+        f_rest_fields = [attr for attr in available_attrs if attr.startswith('f_rest_')]
+        f_rest_fields = sorted(f_rest_fields, key=lambda x: int(x.split('_')[-1]))
+        if f_rest_fields:
+            features_extra_list = []
+            for field in f_rest_fields:
+                data = extract_attribute_data(mesh_obj.data, field)
+                if data is not None:
+                    features_extra_list.append(data)
+            if features_extra_list:
+                features_extra = np.column_stack(features_extra_list)
+                num_f_rest = len(f_rest_fields)
+                # Determine degree and coefficients to use
+                if num_f_rest >= 45:
+                    actual_degree = 3
+                    coeffs_to_use = 45
+                elif num_f_rest >= 24:
+                    actual_degree = 2  
+                    coeffs_to_use = 24
+                elif num_f_rest >= 9:
+                    actual_degree = 1
+                    coeffs_to_use = 9
+                else:
+                    actual_degree = 0
+                    coeffs_to_use = 0
+                if coeffs_to_use > 0:
+                    features_extra_used = features_extra[:, :coeffs_to_use]
+                    coeffs_per_degree = (actual_degree + 1) ** 2 - 1
+                    features_extra_reshaped = features_extra_used.reshape((num_points, 3, coeffs_per_degree))
+                    features_extra_reshaped = np.transpose(features_extra_reshaped, [0, 2, 1])
+                    features_dc_reshaped = features_dc.reshape(-1, 1, 3)
+                    all_features = np.concatenate([features_dc_reshaped, features_extra_reshaped], axis=1)
+                    sh_coeffs = all_features.reshape(num_points, -1)
+                else:
+                    sh_coeffs = features_dc
+            else:
+                sh_coeffs = features_dc
+        else:
+            sh_coeffs = features_dc
+    else:
+        # Default SH coeffs if not found
+        sh_coeffs = np.ones((num_points, 3)) * 0.28209479177387814
+    # Extract scales
+    if all(attr in available_attrs for attr in ['scale_0', 'scale_1', 'scale_2']):
+        scale_0 = extract_attribute_data(mesh_obj.data, 'scale_0')
+        scale_1 = extract_attribute_data(mesh_obj.data, 'scale_1')
+        scale_2 = extract_attribute_data(mesh_obj.data, 'scale_2')
+        scales = np.column_stack([scale_0, scale_1, scale_2])
+        scales = np.exp(scales)  # Apply exponential
+    else:
+        scales = np.ones((num_points, 3)) * 0.01
+    # Extract rotations
+    if all(attr in available_attrs for attr in ['rot_0', 'rot_1', 'rot_2', 'rot_3']):
+        rot_0 = extract_attribute_data(mesh_obj.data, 'rot_0')
+        rot_1 = extract_attribute_data(mesh_obj.data, 'rot_1')
+        rot_2 = extract_attribute_data(mesh_obj.data, 'rot_2')
+        rot_3 = extract_attribute_data(mesh_obj.data, 'rot_3')
+        rotations = np.column_stack([rot_0, rot_1, rot_2, rot_3])
+        # Normalize quaternions
+        norms = np.linalg.norm(rotations, axis=1, keepdims=True)
+        rotations = rotations / norms
+    else:
+        rotations = np.zeros((num_points, 4))
+        rotations[:, 0] = 1.0  # Identity quaternion
+    # Extract opacity
+    if 'opacity' in available_attrs:
+        opacity_raw = extract_attribute_data(mesh_obj.data, 'opacity')
+        opacity = 1.0 / (1.0 + np.exp(-opacity_raw))  # Apply sigmoid
+    else:
+        opacity = np.ones(num_points)
+    return {
+        'num_points': num_points,
+        'positions': positions,
+        'scales': scales,
+        'rotations': rotations,
+        'opacities': opacity,
+        'sh_coeffs': sh_coeffs,
+        'sh_dim': sh_coeffs.shape[1]
+    }
+

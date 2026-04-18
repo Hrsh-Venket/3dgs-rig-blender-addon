@@ -217,7 +217,7 @@ def sna_texture_creation_FD1B2():
                     }
                     total_gaussians += gaussian_count
                 except Exception as e:
-                    print(f"  ❌ {obj.name}: Reconstruction failed completely: {e}")
+                    print(f" {obj.name}: Reconstruction failed completely: {e}")
                     continue
             if bpy.gaussian_object_cache:
                 cache_status = f"Cache reconstructed: {len(bpy.gaussian_object_cache)} objects, {total_gaussians:,} gaussians"
