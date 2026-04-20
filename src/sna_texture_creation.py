@@ -263,6 +263,7 @@ def sna_texture_creation_FD1B2():
         merged_gaussian_data = np.concatenate(all_gaussian_data, axis=0)
         total_gaussians = len(merged_gaussian_data)
         print(f"Total merged gaussians: {total_gaussians:,}")
+
         # ========== CREATE GLOBAL 3D GAUSSIAN TEXTURE ==========
         total_floats = merged_gaussian_data.size
         max_texture_dim = 16384

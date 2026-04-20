@@ -55,6 +55,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+pyproject.toml
 # Editor directories and files
 .vscode/
 .idea/

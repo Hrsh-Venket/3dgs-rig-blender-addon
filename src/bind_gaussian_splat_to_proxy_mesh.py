@@ -90,6 +90,27 @@ class Bind_Gaussian_Splat_To_Proxy_Mesh(bpy.types.Operator):
         rest_quat_x   = np.zeros(num_verts, dtype=np.float32)
         rest_quat_y   = np.zeros(num_verts, dtype=np.float32)
         rest_quat_z   = np.zeros(num_verts, dtype=np.float32)
+        rest_len_t    = np.zeros(num_verts, dtype=np.float32)
+        rest_len_b    = np.zeros(num_verts, dtype=np.float32)
+        rest_len_n    = np.zeros(num_verts, dtype=np.float32)
+        orig_rot_0    = np.zeros(num_verts, dtype=np.float32)
+        orig_rot_1    = np.zeros(num_verts, dtype=np.float32)
+        orig_rot_2    = np.zeros(num_verts, dtype=np.float32)
+        orig_rot_3    = np.zeros(num_verts, dtype=np.float32)
+        orig_scale_0  = np.zeros(num_verts, dtype=np.float32)
+        orig_scale_1  = np.zeros(num_verts, dtype=np.float32)
+        orig_scale_2  = np.zeros(num_verts, dtype=np.float32)
+        
+        mesh = gaussian_obj.data
+        for attr_name, arr in [('rot_0', orig_rot_0), ('rot_1', orig_rot_1),
+                               ('rot_2', orig_rot_2), ('rot_3', orig_rot_3),
+                               ('scale_0', orig_scale_0), ('scale_1', orig_scale_1),
+                               ('scale_2', orig_scale_2)]:
+            if attr_name in [a.name for a in mesh.attributes]:
+                mesh.attributes[attr_name].data.foreach_get("value", arr)
+
+
+
 
         # For each vertex in gaussian_obj
         for i in range(num_verts):
@@ -101,6 +122,10 @@ class Bind_Gaussian_Splat_To_Proxy_Mesh(bpy.types.Operator):
                 face_indices[i] = 0
                 bary_u[i] = bary_v[i] = bary_w[i] = 1/3
                 rest_quat_w[i] = 1.0
+                rest_len_t[i] = 1.0
+                rest_len_b[i] = 1.0
+                rest_len_n[i] = 1.0
+                
                 continue
 
             face_indices[i] = float(face_index)
@@ -117,9 +142,22 @@ class Bind_Gaussian_Splat_To_Proxy_Mesh(bpy.types.Operator):
             bary_w[i] = w
 
             # Build TBN (tangent/bitangent/normal) for face
-            face_normal = tri.normal.normalized()
-            tangent = (v1 - v0).normalized()
-            bitangent = face_normal.cross(tangent).normalized()
+            face_normal_raw = tri.normal # .normalized()
+            tangent_raw = (v1 - v0) # .normalized()
+            bitangent_raw = face_normal_raw.cross(tangent_raw) #.normalized()
+            
+            # Get for scaling information
+            n_len = face_normal_raw.length
+            t_len = tangent_raw.length
+            b_len = bitangent_raw.length
+
+            rest_len_n[i] = n_len
+            rest_len_t[i] = t_len
+            rest_len_b[i] = b_len
+            
+            face_normal = face_normal_raw.normalized()
+            tangent = tangent_raw.normalized()
+            bitangent = bitangent_raw.normalized()
 
             # Offset from hit point to vertex position
             offset_vec = g_pos_proxy - location
@@ -146,6 +184,17 @@ class Bind_Gaussian_Splat_To_Proxy_Mesh(bpy.types.Operator):
             '_bind_rest_quat_x': rest_quat_x,
             '_bind_rest_quat_y': rest_quat_y,
             '_bind_rest_quat_z': rest_quat_z,
+            '_bind_rest_len_b':  rest_len_b,
+            '_bind_rest_len_t':  rest_len_t,
+            '_bind_rest_len_n':  rest_len_n,
+            '_bind_orig_rot_0':  orig_rot_0,
+            '_bind_orig_rot_1':  orig_rot_1,
+            '_bind_orig_rot_2':  orig_rot_2,
+            '_bind_orig_rot_3':  orig_rot_3,
+            '_bind_orig_scale_0':orig_scale_0,
+            '_bind_orig_scale_1':orig_scale_1,
+            '_bind_orig_scale_2':orig_scale_2,
+
         }
 
         mesh = gaussian_obj.data
@@ -289,6 +338,22 @@ def Compute_New_World_Positions(gaussian_obj):
         _read_bind_attr(mesh_data, '_bind_rest_quat_y', num),
         _read_bind_attr(mesh_data, '_bind_rest_quat_z', num),
     ])
+    rest_len_t = _read_bind_attr(mesh_data, '_bind_rest_len_t', num)
+    rest_len_b = _read_bind_attr(mesh_data, '_bind_rest_len_b', num)
+    rest_len_n = _read_bind_attr(mesh_data, '_bind_rest_len_n', num)
+
+    orig_rotations = np.column_stack([
+        _read_bind_attr(mesh_data, '_bind_orig_rot_0', num),
+        _read_bind_attr(mesh_data, '_bind_orig_rot_1', num),
+        _read_bind_attr(mesh_data, '_bind_orig_rot_2', num),
+        _read_bind_attr(mesh_data, '_bind_orig_rot_3', num),
+    ])
+    
+    orig_scales = np.column_stack([
+        _read_bind_attr(mesh_data, '_bind_orig_scale_0', num),
+        _read_bind_attr(mesh_data, '_bind_orig_scale_1', num),
+        _read_bind_attr(mesh_data, '_bind_orig_scale_2', num),
+    ])
 
     # Evaluate the deformed proxy mesh
     depsgraph = bpy.context.evaluated_depsgraph_get()
@@ -320,12 +385,17 @@ def Compute_New_World_Positions(gaussian_obj):
     anchor = bary[:, 0:1] * v0 + bary[:, 1:2] * v1 + bary[:, 2:3] * v2
 
     # Deformed TBN
-    normals = tri_normals[face_idx]
-    normals /= np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-10)
-    tangents = v1 - v0
-    tangents /= np.maximum(np.linalg.norm(tangents, axis=1, keepdims=True), 1e-10)
-    bitangents = np.cross(normals, tangents)
-    bitangents /= np.maximum(np.linalg.norm(bitangents, axis=1, keepdims=True), 1e-10)
+    raw_normals = tri_normals[face_idx]
+    raw_tangents = v1 - v0
+    raw_bitangents = np.cross(raw_normals, raw_tangents)
+
+    normals = raw_normals / np.maximum(np.linalg.norm(raw_normals, axis=1, keepdims=True), 1e-10)
+    tangents = raw_tangents / np.maximum(np.linalg.norm(raw_tangents, axis=1, keepdims=True), 1e-10)
+    bitangents = raw_bitangents / np.maximum(np.linalg.norm(raw_bitangents, axis=1, keepdims=True), 1e-10)
+
+    t_len = np.linalg.norm(raw_tangents, axis=1)
+    b_len = np.linalg.norm(raw_bitangents, axis=1)
+    n_len = np.linalg.norm(raw_normals, axis=1)
 
     # New positions = anchor + offset in deformed TBN space (proxy-local)
     new_positions_proxy = (anchor
@@ -336,7 +406,9 @@ def Compute_New_World_Positions(gaussian_obj):
     # Transform from proxy-local to gaussian-local space
     # gaussian_data[:, 0:3] stores positions in the gaussian mesh's local space,
     # so we need: proxy_local -> world -> gaussian_local
-    p2g = np.array((gaussian_obj.matrix_world.inverted() @ proxy_obj.matrix_world).transposed())  # 4x4 col-major
+    # p2g = np.array((gaussian_obj.matrix_world.inverted() @ proxy_obj.matrix_world).transposed())  # 4x4 col-major
+    p2g_mat = gaussian_obj.matrix_world.inverted() @ proxy_obj.matrix_world # Blender Matrix Obj needed
+    p2g = np.array(p2g_mat.transposed())
     ones = np.ones((new_positions_proxy.shape[0], 1), dtype=np.float32)
     pos_h = np.hstack([new_positions_proxy, ones])  # (N, 4)
     new_positions = (pos_h @ p2g)[:, :3]
@@ -347,7 +419,24 @@ def Compute_New_World_Positions(gaussian_obj):
     rotation_delta = _quat_multiply(deformed_q, _quat_conjugate(rest_q))
     rotation_delta /= np.maximum(np.linalg.norm(rotation_delta, axis=1, keepdims=True), 1e-10)
 
-    return new_positions, rotation_delta
+    # ensure quat sign consistency
+    negative_w = rotation_delta[:, 0] < 0
+    rotation_delta[negative_w] *= -1
+
+    # Transform rotation delta from proxu-local to gaussian-local space
+    p2g_quat = np.array(p2g_mat.to_quaternion()).reshape(1, 4)
+    rotation_delta = _quat_multiply(_quat_multiply(p2g_quat, rotation_delta), _quat_conjugate(p2g_quat))
+    print(f"    DEBUG rotation_delta[0]: {rotation_delta[0]}")                                                                                          
+    print(f"    DEBUG orig_rotations[0]: {orig_rotations[0]}")                                                                                          
+    print(f"    DEBUG p2g_quat: {p2g_quat}")
+    
+    scale_ratios = np.column_stack([
+        t_len / np.maximum(rest_len_t, 1e-10),
+        b_len / np.maximum(rest_len_b, 1e-10),
+        n_len / np.maximum(rest_len_n, 1e-10),
+    ])
+
+    return new_positions, rotation_delta, scale_ratios, orig_rotations, orig_scales
 
 
 def test_bind_data_integrity(gaussian_obj):
@@ -373,6 +462,7 @@ def test_bind_data_integrity(gaussian_obj):
         '_bind_face_idx', '_bind_bary_u', '_bind_bary_v', '_bind_bary_w',
         '_bind_offset_t', '_bind_offset_b', '_bind_offset_n',
         '_bind_rest_quat_w', '_bind_rest_quat_x', '_bind_rest_quat_y', '_bind_rest_quat_z',
+        '_bind_rest_len_t', '_bind_rest_len_b', '_bind_rest_len_n'
     ]
     all_present = True
     for name in attr_names:
@@ -423,7 +513,7 @@ def test_bind_data_integrity(gaussian_obj):
 
     # Round-trip test: compute positions from bind data on the undeformed proxy
     # and compare to original gaussian positions
-    new_pos, _ = Compute_New_World_Positions(gaussian_obj)
+    new_pos, _, _, _, _= Compute_New_World_Positions(gaussian_obj)
     if new_pos is not None:
         orig_pos = np.zeros(num * 3, dtype=np.float32)
         gaussian_obj.data.vertices.foreach_get("co", orig_pos)
@@ -446,22 +536,3 @@ def test_bind_data_integrity(gaussian_obj):
     print("--- End integrity test ---\n")
     return True
 
-# class Refresh_Proxy_Gaussians(bpy.types.Operator):
-#     bl_idname = "sna.refresh_proxy_gaussians"
-#     bl_label = "3DGS Render: Refresh Proxy Gaussians"
-#     bl_description = "Re-extract gaussian data from evaluated proxy mesh and rebuild GPU textures"
-#     bl_options = {"REGISTER", "UNDO"}
-#
-#     @classmethod
-#     def poll(cls, context):
-#         for obj in bpy.data.objects:
-#             if obj.get("_bind_proxy_mesh"):
-#                 return True
-#         cls.poll_message_set("No proxy-bound gaussian objects found")
-#         return False
-#
-#     def execute(self, context):
-#         sna_c2_refresh_all_4D367(True, False, True)
-#         sna_texture_creation_FD1B2()
-#         self.report({'INFO'}, "Proxy gaussians refreshed")
-#         return {'FINISHED'}

@@ -251,18 +251,18 @@ def sna_c2_refresh_all_4D367(REFRESH_ALL_OBJECTS, UPDATE_TRANSFORMS, USE_EVALUAT
             if source_obj.get("_bind_proxy_mesh"):
                 try:
                     from .bind_gaussian_splat_to_proxy_mesh import Compute_New_World_Positions, _quat_multiply
-                    new_positions, rotation_delta = Compute_New_World_Positions(source_obj)
+                    new_positions, rotation_delta, scale_ratios, orig_rotations, orig_scales = Compute_New_World_Positions(source_obj)
                     if new_positions is None:
                         print(f"    PROXY PATCH FAILED: Compute_New_World_Positions returned None for {source_obj.name}")
                     else:
                         # Patch positions
                         gaussian_data[:, 0:3] = new_positions
                         # Apply rotation delta to original rotations: new_rot = delta * original
-                        orig_rotations = gaussian_data[:, 3:7]
                         new_rotations = _quat_multiply(rotation_delta, orig_rotations)
                         norms = np.linalg.norm(new_rotations, axis=1, keepdims=True)
                         new_rotations /= np.maximum(norms, 1e-10)
                         gaussian_data[:, 3:7] = new_rotations
+                        gaussian_data[:, 7:10] = np.exp(orig_scales) * scale_ratios
                         
                         # Write updated positions back to the source mesh vertices
                         source_obj.data.vertices.foreach_set("co", new_positions.flatten())
@@ -272,6 +272,10 @@ def sna_c2_refresh_all_4D367(REFRESH_ALL_OBJECTS, UPDATE_TRANSFORMS, USE_EVALUAT
                             if attr_name in [a.name for a in source_obj.data.attributes]:
                                 source_obj.data.attributes[attr_name].data.foreach_set("value", new_rotations[:, i])
 
+                        for i, attr_name in enumerate(["scale_0", "scale_1", "scale_2"]):
+                            if attr_name in [a.name for a in source_obj.data.attributes]:
+                                source_obj.data.attributes[attr_name].data.foreach_set("value", np.log(gaussian_data[:, 7+i]))
+                        
                         source_obj.data.update()
 
 
