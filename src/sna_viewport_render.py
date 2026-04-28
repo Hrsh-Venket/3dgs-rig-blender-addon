@@ -7,7 +7,7 @@ def sna_viewport_render_A3941():
     ENABLE_RENDERING = True
     RENDER_MODE = 0  # 0=Gaussian, 1=Depth, 2=Surfel
     SH_DEGREE = 3    # 0, 1, 2, or 3
-    SORT_THRESHOLD = 0.05  # Camera movement threshold for re-sorting
+    SORT_THRESHOLD = 0.05 # Camera movement threshold for re-sorting
     # ============================================
     #import bpy
     #import gpu
@@ -192,21 +192,29 @@ def sna_viewport_render_A3941():
             print(f"Metadata update error: {e}")
             return False
 
-    def update_depth_sorting():
+    def update_depth_sorting(view_matrix):
         """Global depth sorting for all objects combined"""
         try:
             if not hasattr(bpy, 'gaussian_object_metadata'):
                 return False
-            view_matrix = gpu.matrix.get_model_view_matrix()
+            # view_matrix = gpu.matrix.get_model_view_matrix()
             # NEW: Check if forced depth sort is requested by script_3
             force_sort = getattr(bpy, 'gaussian_needs_depth_sort', False)
             # Check if camera moved enough to require re-sorting
             update_needed = force_sort  # Start with force flag
-            if not force_sort and hasattr(bpy, 'gaussian_last_camera_pos'):
-                last_pos = bpy.gaussian_last_camera_pos
-                current_pos = [view_matrix[0][3], view_matrix[1][3], view_matrix[2][3]]
-                movement = sum((a-b)**2 for a,b in zip(last_pos, current_pos))**0.5
+            # if not force_sort and hasattr(bpy, 'gaussian_last_camera_pos'):
+            #     last_pos = bpy.gaussian_last_camera_pos
+            #     current_pos = [view_matrix[0][3], view_matrix[1][3], view_matrix[2][3]]
+            #     movement = sum((a-b)**2 for a,b in zip(last_pos, current_pos))**0.5
+            #     update_needed = movement > SORT_THRESHOLD
+            #     print(f"SORT CHECK: movement={movement:.6f}, threshold={SORT_THRESHOLD}, updating={update_needed}")
+            if not force_sort and hasattr(bpy, 'gaussian_last_camera_matrix'):
+                rv3d = bpy.context.space_data.region_3d
+                current_mat = rv3d.view_matrix
+                last_mat = bpy.gaussian_last_camera_matrix
+                movement = max(abs(current_mat[i][j] - last_mat[i][j]) for i in range(4) for j in range(4))
                 update_needed = movement > SORT_THRESHOLD
+                print(f"SORT CHECK: movement={movement:.6f}, threshold={SORT_THRESHOLD}, updating={update_needed}")
             elif not force_sort:
                 update_needed = True  # First time, no stored camera position
             if update_needed:
@@ -266,7 +274,7 @@ def sna_viewport_render_A3941():
                         format='R32F',
                         data=indices_buffer
                     )
-                bpy.gaussian_last_camera_pos = [view_matrix[0][3], view_matrix[1][3], view_matrix[2][3]]
+                bpy.gaussian_last_camera_matrix = bpy.context.space_data.region_3d.view_matrix.copy()
                 return True
             return False
         except Exception as e:
@@ -304,7 +312,7 @@ def sna_viewport_render_A3941():
             if transforms_changed:
                 update_metadata_texture()
             # Update global depth sorting
-            sorting_updated = update_depth_sorting()
+            # sorting_updated = update_depth_sorting()
             viewport = gpu.state.viewport_get()
             viewport_width = viewport[2] - viewport[0]
             viewport_height = viewport[3] - viewport[1]
@@ -339,6 +347,7 @@ def sna_viewport_render_A3941():
                 fb = gpu.state.active_framebuffer_get()
                 fb.clear(color=(0.0, 0.0, 0.0, 0.0), depth=1.0)
                 view_matrix = gpu.matrix.get_model_view_matrix()
+                sorting_updated = update_depth_sorting(view_matrix)
                 proj_matrix = gpu.matrix.get_projection_matrix()
                 fy = proj_matrix[1][1]
                 fov_y = 2 * math.atan(1.0 / fy)
